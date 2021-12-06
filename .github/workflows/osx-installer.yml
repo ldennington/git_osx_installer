@@ -37,6 +37,7 @@ jobs:
     runs-on: macos-latest
     outputs:
       with_scalar: ${{ steps.get_outputs.outputs.with_scalar }}    # Whether Scalar was built into this release
+      commit_hash: ${{ steps.get_outputs.outputs.commit_hash }}    # The SHA hash of the commit built for this release
     steps:
       - uses: actions/checkout@v1
       - name: Install Git's dependencies
@@ -79,6 +80,9 @@ jobs:
           cp git/git-$VERSION.tar.gz git/git-manpages-$VERSION.tar.gz build/ ||
           die "Could not copy .tar.gz files"
 
+          GIT_BUILT_FROM_COMMIT=$(gunzip -c git/git-$VERSION.tar.gz | git get-tar-commit-id) ||
+          die "Could not determine commit for build"
+
           #### # drop the -isysroot `GIT_SDK` hack
           #### sed -i .bak -e 's/ -isysroot .(SDK_PATH)//' Makefile ||
           #### die "Could not drop the -isysroot hack"
@@ -97,24 +101,57 @@ jobs:
           die "Build failed"
 
           PATH=/usr/local/bin:$PATH \
-          make image ||
+          make GIT_BUILT_FROM_COMMIT=$GIT_BUILT_FROM_COMMIT image ||
           die "Build failed"
 
           mkdir osx-installer &&
           mv *.dmg disk-image/*.pkg osx-installer/
-      - name: Determine whether Scalar is included in the build
+      - name: Assign output variables
         run: |
+          # Determine whether Scalar is included in the build
           if (find ./stage/git-*/usr/local/git/bin/scalar); then
             echo "::set-output name=with_scalar::true"
           else
             echo "::set-output name=with_scalar::false"
           fi
+
+          # Set build commit hash
+          echo "::set-output name=commit_hash::$(git -C git rev-parse -q --verify HEAD 2>/dev/null)"
         id: get_outputs
       - name: Upload osx-installer artifacts
         uses: actions/upload-artifact@v1
         with:
           name: osx-installer
           path: osx-installer
+
+  test-install:
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - name: Download test installer
+        uses: actions/download-artifact@v2
+        with:
+          name: osx-installer
+          path: osx-installer
+      - name: Run test
+        run: |
+          die () {
+            echo "$*" >&2
+            exit 1
+          }
+
+          # Install the git package
+          pkgpath=$(find ./osx-installer/*.pkg)
+          sudo installer -verbose -pkg $pkgpath -target /
+
+          # Show build options
+          git version --build-options
+          BUILD_OPTIONS=$(git version --build-options)
+
+          # Test build options values
+          COMMIT_HASH="${{ needs.build.outputs.commit_hash }}"
+          echo $BUILD_OPTIONS | grep -q "built from commit: $COMMIT_HASH" ||
+            die "Build commit did not match expected value ($COMMIT_HASH)!"
 
   test-scalar:
     if: needs.build.outputs.with_scalar == 'true'
