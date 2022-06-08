@@ -82,7 +82,7 @@ vars:
 	# BUILD_DIR = $(BUILD_DIR)
 	# SDK_PATH = $(SDK_PATH)
 
-.PHONY: compile download install install-assets install-bin install-man install-subtree image package deploy reinstall setup readme
+.PHONY: compile download install install-assets install-bin install-man install-subtree image package deploy reinstall setup readme codesign
 
 .SECONDARY:
 
@@ -98,7 +98,6 @@ vars:
 
 tmp/setup-verified: /usr/local/etc/xml/catalog /usr/local/bin/xmlto /usr/local/bin/asciidoc
 	grep -q docbook-xsl /usr/local/etc/xml/catalog && exit 0 || (echo "You need docbook-xsl installed to build docs; If it is already installed, uninstall and reinstall it"; brew install docbook-xsl)
-	touch	$@
 
 setup: tmp/setup-verified
 
@@ -179,7 +178,6 @@ else
 endif
 	touch $@
 
-
 disk-image/VERSION-$(VERSION)-$(ARCH_CODE)-$(OSX_CODE):
 	rm -f disk-image/*.pkg disk-image/VERSION-* disk-image/.DS_Store
 	touch "$@"
@@ -193,10 +191,10 @@ git-%-$(BUILD_CODE).dmg: disk-image/git-%-$(BUILD_CODE).pkg
 	hdiutil convert -format UDZO -o $@ git-$(VERSION)-$(BUILD_CODE).uncompressed.dmg
 	rm -f git-$(VERSION)-$(BUILD_CODE).uncompressed.dmg
 
-tmp/deployed-%-$(BUILD_CODE): git-%-$(BUILD_CODE).dmg
-	mkdir -p tmp
-	scp git-$(VERSION)-$(BUILD_CODE).dmg timcharper@frs.sourceforge.net:/home/pfs/project/git-osx-installer | tee $@.working
-	mv $@.working $@
+# tmp/deployed-%-$(BUILD_CODE): git-%-$(BUILD_CODE).dmg
+# 	mkdir -p tmp
+# 	scp git-$(VERSION)-$(BUILD_CODE).dmg timcharper@frs.sourceforge.net:/home/pfs/project/git-osx-installer | tee $@.working
+# 	mv $@.working $@
 
 package: disk-image/git-$(VERSION)-$(BUILD_CODE).pkg
 install-assets: $(BUILD_DIR)/git-$(VERSION)/osx-installed-assets
@@ -210,11 +208,14 @@ download: build/git-$(VERSION).tar.gz build/git-manpages-$(VERSION).tar.gz
 
 compile: $(BUILD_DIR)/git-$(VERSION)/osx-built $(BUILD_DIR)/git-$(VERSION)/osx-built-keychain $(BUILD_DIR)/git-$(VERSION)/osx-built-subtree
 
-deploy: tmp/deployed-$(VERSION)-$(BUILD_CODE)
+developer-sign: compile
+	run_developer_signing.sh $(BUILD_DIR)/git-$(VERSION)
 
-tmp/deployed-readme: README.md
-	scp README.md timcharper@frs.sourceforge.net:/home/pfs/project/git-osx-installer | tee $@.working
-	mv $@.working $@
+deploy: developer-sign tmp/deployed-$(VERSION)-$(BUILD_CODE)
+
+# tmp/deployed-readme: README.md
+# 	scp README.md timcharper@frs.sourceforge.net:/home/pfs/project/git-osx-installer | tee $@.working
+# 	mv $@.working $@
 
 readme: tmp/deployed-readme
 
